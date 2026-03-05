@@ -1,0 +1,24 @@
+# --- Core Framework ---
+langchain>=0.3.0           # Main framework
+langchain-core>=0.3.0      # Base abstractions
+langgraph>=0.2.0           # Orchestration and StateGraph logic
+langchain-community>=0.3.0 # Community tools (Tavily, etc.)
+
+# --- LLM Provider ---
+langchain-groq>=0.2.0      # Official Groq integration
+
+# --- Observability ---
+langsmith>=0.1.100         # Tracing and evaluation (required for LangSmith)
+
+# --- Tools & APIs ---
+tavily-python>=0.5.0       # Search API wrapper
+python-dotenv>=1.0.0       # For loading .env files
+
+# --- Data & Validation ---
+pydantic>=2.9.0            # Data validation for AgentState and Tools
+pandas>=2.2.0              # For the "Analyst" agent data manipulation
+numexpr>=2.10.0            # Required for safe math operations (Analyst tools)
+
+# --- Optional/Utilities ---
+httpx>=0.27.0              # Async HTTP client (often needed for API calls)
+typing-extensions>=4.10.0  # Backwards compatibility for type hinting
