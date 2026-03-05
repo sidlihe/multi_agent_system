@@ -1,2 +1,7 @@
-projet_key
+project_key
 project_key.pub
+venv
+.venv
+__pycache__/
+*.pyc
+.env
