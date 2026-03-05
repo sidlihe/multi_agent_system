@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "multi-agent-system"
+version = "0.1.0"
+description = "Professional Multi-Agent System with Groq & LangGraph"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langchain = "^0.2.0"
+langchain-groq = "^0.1.0"
+langgraph = "^0.1.0"
+langchain-community = "^0.2.0"
+pydantic = "^2.0.0"
+python-dotenv = "^1.0.0"
+tavily-python = "^0.3.0"  # For search tools
+numexpr = "^2.0.0"        # For math tools
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
