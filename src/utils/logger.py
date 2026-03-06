@@ -18,11 +18,11 @@ formatter = logging.Formatter(
     datefmt="%Y-%m-%d %H:%M"  # minutes only
 )
 
-def get_logger():
+def get_logger(name: str = __name__):
     """
     Returns a logger that shows the file name (without extension).
     """
-    logger = logging.getLogger()
+    logger = logging.getLogger(name or __name__)
     logger.setLevel(logging.DEBUG)
 
     # Console handler

@@ -60,4 +60,4 @@ if __name__ == "__main__":
         model=model_name
     )
  
-logger.info("\n".join(f"{k}: {v}" for k, v in llm_response.model_dump().items()))
+    logger.info("\n".join(f"{k}: {v}" for k, v in llm_response.model_dump().items()))

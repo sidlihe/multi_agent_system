@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List,Any,Optional
 
 class LLMUsage(BaseModel):
@@ -28,3 +28,6 @@ class EvaluationResult(BaseModel):
     verdict: str
     score: float
     reasoning: str
+
+class SearchInput(BaseModel):
+    query: str = Field(description="The exact search query to look up on the web.")
