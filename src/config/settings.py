@@ -1,3 +1,4 @@
+# src/config/settings.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,7 +15,7 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str | None = None
 
     MAX_CONTEXT_TOKENS: int = 6000
-    MAX_ITERATIONS: int = 5
+    MAX_ITERATIONS: int = 10  # Increased from 5 to allow more agent iterations
     TEMPERATURE: float = 0.3
 
     # Agent Names
