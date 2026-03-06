@@ -1,20 +1,24 @@
-[tool.poetry]
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
 name = "multi-agent-system"
 version = "0.1.0"
-description = "Professional Multi-Agent System with Groq & LangGraph"
-authors = ["Your Name <you@example.com>"]
+description = "Multi-agent system with Groq + LangChain"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langchain>=0.2",
+    "langchain-groq>=0.1",
+    "langgraph>=0.2",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "rich>=13.0",
+    "httpx",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-langchain = "^0.2.0"
-langchain-groq = "^0.1.0"
-langgraph = "^0.1.0"
-langchain-community = "^0.2.0"
-pydantic = "^2.0.0"
-python-dotenv = "^1.0.0"
-tavily-python = "^0.3.0"  # For search tools
-numexpr = "^2.0.0"        # For math tools
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*", "*.tests", "tests.*"]
+namespaces = false

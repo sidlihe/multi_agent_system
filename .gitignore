@@ -5,3 +5,6 @@ venv
 __pycache__/
 *.pyc
 .env
+.log
+logs/
+src/multi_agent_system.egg-info/
