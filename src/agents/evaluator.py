@@ -1,11 +1,10 @@
-# Evaluator Agent Node
 # src/agents/evaluator.py
 
 import os
 import sys
 from pathlib import Path
 from pydantic import BaseModel, Field
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 # Add the src directory to the system path for imports
 project_root = Path(__file__).resolve().parents[2]
@@ -54,7 +53,9 @@ def evaluator_node(state: dict) -> dict:
         f"Current Whiteboard State (Work done so far):\n{whiteboard}\n\n"
         "Evaluate if the current state fully and accurately addresses the user request. "
         "Score it 0.0 to 1.0 where 1.0 = perfectly complete, 0.0 = no progress. "
-        "If score >= 0.75, the work is PASSED. Otherwise provide specific feedback for improvement."
+        "If score >= 0.75, the work is PASSED. Otherwise provide specific feedback for improvement.\n\n"
+        "Be strict: if important parts are missing (e.g. no clear recommendation when asked 'should I buy?'), "
+        "do not pass even if score would otherwise be high."
     )
     
     try:
@@ -64,25 +65,40 @@ def evaluator_node(state: dict) -> dict:
         logger.info(f"Evaluation Score: {eval_result.score:.2f} | Passing: {eval_result.is_passing}")
         logger.info(f"Feedback: {eval_result.feedback}")
         
-        # Append evaluation to whiteboard
-        eval_summary = f"\n\n[EVALUATOR] Score: {eval_result.score:.1f}/1.0 | Status: {'✓ PASS' if eval_result.is_passing else '✗ FAIL'}"
+        # Prepare evaluation summary
+        eval_summary = f"\n\n[EVALUATOR #{recursion_depth+1}] Score: {eval_result.score:.2f}/1.0 | Status: {'✓ PASS' if eval_result.is_passing else '✗ FAIL'}"
         if eval_result.feedback:
             eval_summary += f" | Feedback: {eval_result.feedback}"
         
-        updated_whiteboard = whiteboard + eval_summary
+        # ───────────────────────────────────────────────
+        # IMPORTANT: Prevent infinite loop by neutralizing completion marker
+        # ───────────────────────────────────────────────
+        cleaned_whiteboard = whiteboard
         
         if eval_result.is_passing:
-            logger.info("Evaluation PASSED. Workflow ready to conclude.")
+            # Remove or mark the Analyst completion signal so Supervisor won't see it again
+            if "*** ANALYSIS COMPLETE ***" in cleaned_whiteboard:
+                cleaned_whiteboard = cleaned_whiteboard.replace(
+                    "*** ANALYSIS COMPLETE ***",
+                    "[ANALYSIS COMPLETE – REVIEWED & PASSED by Evaluator]"
+                )
+            # Optional: also remove older evaluator blocks if you want to keep whiteboard cleaner
+            # but usually not necessary
+
+        updated_whiteboard = cleaned_whiteboard + eval_summary
+        
+        if eval_result.is_passing:
+            logger.info("Evaluation PASSED. Workflow should conclude.")
             return {
-                "messages": [HumanMessage(content="Evaluation complete - work passed quality check.")],
+                "messages": [AIMessage(content="Evaluation complete - work passed quality check.")],
                 "whiteboard": updated_whiteboard,
                 "next": "FINISH"
             }
         else:
-            # Failed evaluation: return to supervisor for refinement
-            logger.info("Evaluation FAILED. Routing back to Supervisor for improvements.")
+            # Failed → go back for improvement (usually to Supervisor)
+            logger.info("Evaluation FAILED. Routing back to Supervisor for refinement.")
             return {
-                "messages": [HumanMessage(content="Evaluation failed - requesting improvements.")],
+                "messages": [AIMessage(content="Evaluation failed - requesting improvements.")],
                 "whiteboard": updated_whiteboard,
                 "next": AgentName.SUPERVISOR
             }
@@ -91,25 +107,35 @@ def evaluator_node(state: dict) -> dict:
         logger.error(f"Evaluator LLM execution failed: {e}", exc_info=True)
         error_msg = f"\n\n[EVALUATOR ERROR] Failed to evaluate: {str(e)[:150]}"
         return {
-            "messages": [HumanMessage(content="Evaluation error - returning to Supervisor.")],
+            "messages": [AIMessage(content="Evaluation error - returning to Supervisor.")],
             "whiteboard": whiteboard + error_msg,
             "next": AgentName.SUPERVISOR
         }
 
+
 if __name__ == "__main__":
-    # --- DEBUG/TEST BLOCK ---
     logger.info("Testing Evaluator Node...")
     
-    # FIX: Use HumanMessage object instead of raw dict
-    mock_state_bad = {
-        "messages":[HumanMessage(content="Write a 500 word report on AI in healthcare.")],
-        "whiteboard": "Researcher: AI is good for healthcare."
+    mock_state = {
+        "messages": [HumanMessage(content="Should I buy IRFC stock now?")],
+        "whiteboard": """Researcher searched: IRFC stock price today
+        Result: current price ~99.5 INR
+
+        Analyst Insights:
+        Current price: 99.5 INR
+        Recent trend: down 30% from 52w high
+        *** ANALYSIS COMPLETE ***""",
+                "recursion_depth": 2
     }
     
     try:
-        result = evaluator_node(mock_state_bad)
-        logger.info("=== FINAL NODE OUTPUT ===")
-        logger.info(f"Next Node: {result['next']}")
-        logger.info(f"Updated Whiteboard:\n{result['whiteboard']}")
+        result = evaluator_node(mock_state)
+        print("\n" + "="*60)
+        print("EVALUATOR NODE OUTPUT")
+        print("="*60)
+        print(f"Next: {result.get('next')}")
+        print(f"Whiteboard update length: {len(result.get('whiteboard',''))}")
+        print("Last part of whiteboard:")
+        print(result['whiteboard'][-400:])
     except Exception as e:
-        logger.error(f"\n[NOTE] Execution failed: {e}")
+        logger.error(f"Test failed: {e}")
