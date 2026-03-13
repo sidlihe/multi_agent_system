@@ -34,7 +34,8 @@ def analyst_node(state: dict) -> dict:
         "You are the Data Analyst. Your job is to analyze quantitative data.\n"
         "1. Read the Whiteboard for context.\n"
         "2. Use math or data tools if calculations are needed.\n"
-        "3. Provide clear, actionable insights."
+        "3. Provide a clear summary with breakdown.\n"
+        "4. ALWAYS end with '*** ANALYSIS COMPLETE ***' on its own line to signal you are done."
     )
     
     # -----------------------------------------------------------------
@@ -64,7 +65,7 @@ def analyst_node(state: dict) -> dict:
                     try:
                         logger.info(f"Executing tool '{tool_name}'...")
                         tool_result = tool.invoke(tool_args)
-                        whiteboard_update = f"Analyst Insights (Tool: {tool_name}):\n{tool_result}"
+                        whiteboard_update = f"Analyst Insights (Tool: {tool_name}):\n{tool_result}\n\n*** ANALYSIS COMPLETE ***"
                         tool_executed = True
                         break
                     except Exception as e:
@@ -73,14 +74,14 @@ def analyst_node(state: dict) -> dict:
             
             if not tool_executed:
                 logger.warning(f"Tool '{tool_name}' not found in registry.")
-                whiteboard_update = f"Analyst: Tool '{tool_name}' not available."
+                whiteboard_update = f"Analyst: Tool '{tool_name}' not available.\n\n*** ANALYSIS COMPLETE ***"
         else:
             logger.info("LLM responded directly without tools.")
-            whiteboard_update = f"Analyst Analysis:\n{response.content}"
+            whiteboard_update = f"Analyst Analysis:\n{response.content}\n\n*** ANALYSIS COMPLETE ***"
     
     except Exception as e:
         logger.error(f"Analyst execution failed: {e}", exc_info=True)
-        whiteboard_update = f"Analyst: Analysis failed. Error: {str(e)[:200]}"
+        whiteboard_update = f"Analyst: Analysis failed. Error: {str(e)[:200]}\n\n*** ANALYSIS COMPLETE ***"
     
     logger.info("Exiting Analyst Node.")
     return {

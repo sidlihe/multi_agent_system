@@ -63,9 +63,12 @@ system_prompt = (
     f"  - {AgentName.EVALUATOR} (quality control)\n\n"
     f"IMPORTANT: When routing, use EXACT names from the list above.\n"
     f"Valid next values: '{AgentName.RESEARCHER}', '{AgentName.ANALYST}', '{AgentName.EVALUATOR}', 'FINISH'\n\n"
-    f"1. Review the user request and conversation history.\n"
-    f"2. Check the 'Whiteboard' (shared state) for intermediate progress.\n"
-    f"3. Decide who acts next. If the task is complete, select FINISH."
+    f"ROUTING RULES:\n"
+    f"1. If Whiteboard contains '*** ANALYSIS COMPLETE ***', route to '{AgentName.EVALUATOR}'\n"
+    f"2. If Whiteboard contains recent research data, route to '{AgentName.ANALYST}'\n"
+    f"3. If task appears complete and high quality, route to 'FINISH'\n"
+    f"4. Otherwise, decide who acts next based on progress.\n\n"
+    f"Always check the whiteboard for completion signals before routing."
 )
 
 prompt = ChatPromptTemplate.from_messages([
@@ -80,6 +83,15 @@ def supervisor_node(state):
     
     recursion_depth = state.get("recursion_depth", 0)
     logger.debug(f"Recursion depth: {recursion_depth}")
+    
+    # Check if analysis is complete (explicit signal)
+    whiteboard = state.get("whiteboard", "")
+    if "*** ANALYSIS COMPLETE ***" in whiteboard:
+        logger.info("Analysis completion signal detected. Routing to Evaluator.")
+        return {
+            "next": AgentName.EVALUATOR,
+            "recursion_depth": recursion_depth + 1
+        }
     
     llm = get_llm(temperature=0.3)
     # Bind the schema to force structured output
