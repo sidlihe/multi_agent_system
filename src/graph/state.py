@@ -10,6 +10,8 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from src.utils.logger import get_logger
+from src.graph.completion import CompletionStatus, create_initial_completion_state
+
 logger = get_logger()
 logger.info("Initializing agent state module...")
 
@@ -26,11 +28,14 @@ class AgentState(TypedDict):
     # The "Next" node to route to
     next: str
     
-    # The Shared Whiteboard (Overwritable or Appending)
+    # The Shared Whiteboard (Appending with history)
     whiteboard: Annotated[str, merge_whiteboard]
     
     # Track iteration count to prevent infinite loops
     recursion_depth: int
+    
+    # NEW: Structured completion tracking (replaces string markers)
+    completion_state: CompletionStatus
 
 if __name__ == "__main__":
     # --- DEBUG/TEST BLOCK ---

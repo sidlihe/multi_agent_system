@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     TAVILY_API_KEY: str | None = None
 
     MAX_CONTEXT_TOKENS: int = 6000
-    MAX_ITERATIONS: int = 15  # Allow up to 15 supervisor->agent cycles to prevent premature timeout
+    MAX_ITERATIONS: int = 10  # Allow up to 10 supervisor->agent cycles to prevent premature timeout
     TEMPERATURE: float = 0.3
 
     # Agent Names

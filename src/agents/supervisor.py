@@ -1,6 +1,6 @@
 # src/agents/supervisor.py
 from typing import Literal
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 import os, sys
 from pathlib import Path
@@ -11,8 +11,10 @@ sys.path.append(str(project_root))
 from src.utils.groq_client import get_llm
 from src.config.settings import settings
 from src.utils.logger import get_logger
+from src.graph.completion import CompletionStatus, create_initial_completion_state, update_completion_state
+from src.modules.responses import Supervisor_RouteResponse
 
-logger = get_logger()
+logger = get_logger(__name__)
 logger.info("Initializing Supervisor agent module...")
 
 from enum import Enum
@@ -22,67 +24,140 @@ class AgentName(str, Enum):
     ANALYST = settings.ANALYST
     EVALUATOR = settings.EVALUATOR
 
-class RouteResponse(BaseModel):
-    next: str = Field(description="The next agent to act.")
-    reasoning: str = Field(description="Brief reason for the selection.")
-
 def normalize_next_agent(next_agent: str) -> str:
     next_upper = (next_agent or "").upper().strip()
     if "RESEARCHER" in next_upper: return AgentName.RESEARCHER
     if "ANALYST" in next_upper:    return AgentName.ANALYST
-    if "EVALUATOR" in next_upper:  return AgentName.EVALUATOR
-    if "FINISH" in next_upper:     return "FINISH"
-    return "FINISH"
-
-system_prompt = f"""You are the Supervisor.
-Valid next agents: '{AgentName.RESEARCHER}', '{AgentName.ANALYST}', '{AgentName.EVALUATOR}', 'FINISH'
-
-ROUTING RULES:
-1. If whiteboard contains '*** ANALYSIS COMPLETE ***' → route to EVALUATOR
-2. If recent research data exists and no analysis yet → ANALYST
-3. If task looks complete → FINISH
-4. IMPORTANT SAFETY: If Evaluator has failed 2 or more times or recursion_depth >= 6 → FORCE FINISH immediately.
-"""
-
-prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompt),
-    MessagesPlaceholder(variable_name="messages"),
-    ("system", "Current Whiteboard:\n{whiteboard}\n\nDecide next step:")
-])
+    return AgentName.ANALYST
 
 def supervisor_node(state):
     logger.info("Entering Supervisor Node.")
+    
     recursion_depth = state.get("recursion_depth", 0)
     whiteboard = state.get("whiteboard", "")
-
-    # ───────────────────────────────────────────────
-    # NEW: STRONG LOOP PREVENTION
-    # ───────────────────────────────────────────────
-    evaluator_fail_count = whiteboard.count("[EVALUATOR") + whiteboard.count("✗ FAIL")
     
-    if recursion_depth >= 6 or evaluator_fail_count >= 2:
-        logger.info(f"SAFETY TRIGGER: Recursion={recursion_depth} | Evaluator fails={evaluator_fail_count}. Forcing FINISH to prevent infinite loop.")
+    # Get or create completion state - THIS IS THE KEY
+    completion_state: CompletionStatus = state.get("completion_state")
+    if not completion_state:
+        completion_state = create_initial_completion_state()
+    
+    # ───────────────────────────────────────────────
+    # DETERMINISTIC RULES (Overrides LLM routing)
+    # ───────────────────────────────────────────────
+    
+    # 1. REACH HARD LIMITS
+    if recursion_depth >= 15:
+        logger.warning(f"Max iterations ({recursion_depth}) reached. FINISH.")
         return {
             "next": "FINISH",
-            "recursion_depth": recursion_depth + 1
+            "recursion_depth": recursion_depth + 1,
+            "completion_state": completion_state
         }
+    
+    # 2. IF COMPLETION STATE SAYS WE'RE DONE → FINISH
+    if completion_state.should_force_finish():
+        logger.info(f"Completion achieved (confidence={completion_state.confidence:.2f}). FINISH.")
+        return {
+            "next": "FINISH",
+            "recursion_depth": recursion_depth + 1,
+            "completion_state": completion_state
+        }
+    
+    # 3. IF EVALUATOR JUST RAN: Check result
+    if completion_state.stage == "EVALUATION":
+        if completion_state.is_complete:
+            logger.info("Evaluation PASSED. Workflow complete.")
+            return {
+                "next": "FINISH",
+                "recursion_depth": recursion_depth + 1,
+                "completion_state": completion_state
+            }
+        elif completion_state.should_attempt_refinement():
+            logger.info(f"Evaluation FAILED (attempt {completion_state.refinement_attempts}). Refining...")
+            # Determine which agent to route to based on feedback
+            feedback_lower = completion_state.last_evaluator_feedback.lower()
+            if "research" in feedback_lower or "data" in feedback_lower or "information" in feedback_lower:
+                logger.info("Routing back to RESEARCHER for more data.")
+                updated_state = update_completion_state(completion_state, stage="RESEARCH")
+                return {
+                    "next": AgentName.RESEARCHER,
+                    "recursion_depth": recursion_depth + 1,
+                    "completion_state": updated_state
+                }
+            else:
+                logger.info("Routing back to ANALYST for text refinement.")
+                updated_state = update_completion_state(completion_state, stage="ANALYSIS")
+                return {
+                    "next": AgentName.ANALYST,
+                    "recursion_depth": recursion_depth + 1,
+                    "completion_state": updated_state
+                }
+        else:
+            logger.warning("Max refinement attempts reached. FINISH with best effort.")
+            return {
+                "next": "FINISH",
+                "recursion_depth": recursion_depth + 1,
+                "completion_state": completion_state
+            }
+    
+    # 4. IF ANALYSIS JUST FINISHED → Send to evaluation
+    if completion_state.stage == "ANALYSIS" and "*** ANALYSIS COMPLETE ***" in whiteboard:
+        logger.info("Analysis complete. Routing to EVALUATOR.")
+        updated_state = update_completion_state(completion_state, stage="EVALUATION")
+        return {
+            "next": AgentName.EVALUATOR,
+            "recursion_depth": recursion_depth + 1,
+            "completion_state": updated_state
+        }
+    
+    # ───────────────────────────────────────────────
+    # LLM-BASED ROUTING (Only when above rules don't apply)
+    # ───────────────────────────────────────────────
+    system_prompt = f"""You are the Workflow Supervisor. Route intelligently based on what's needed next.
+    Valid agents: {AgentName.RESEARCHER}, {AgentName.ANALYST}
 
-    # Original logic (kept for normal flow)
-    if "*** ANALYSIS COMPLETE ***" in whiteboard:
-        logger.info("Analysis completion signal detected → Routing to Evaluator")
-        return {"next": AgentName.EVALUATOR, "recursion_depth": recursion_depth + 1}
+    DECISION RULES:
+    1. If user needs real-world data/facts NOT in whiteboard → {AgentName.RESEARCHER}
+    2. If research data exists but needs analysis/summary → {AgentName.ANALYST}
+    3. If evaluator feedback says "more research" → {AgentName.RESEARCHER}
+    4. If evaluator feedback says "reformat/recalculate/clarify" → {AgentName.ANALYST}
+    """
 
-    llm = get_llm(temperature=0.3)
-    chain = prompt | llm.with_structured_output(RouteResponse)
+    user_request = "Unknown"
+    if state.get("messages"):
+        msg = state["messages"][0]
+        user_request = msg.content if hasattr(msg, 'content') else str(msg)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", "Request: {req}\n\nWhiteboard:\n{wb}\n\nRoute to?")
+    ])
+
+    llm = get_llm(temperature=0.1)
+    chain = prompt | llm.with_structured_output(Supervisor_RouteResponse)
 
     try:
-        response = chain.invoke(state)
+        response = chain.invoke({"req": user_request, "wb": whiteboard})  # Truncate for context
         normalized = normalize_next_agent(response.next)
-        logger.info(f"Supervisor Decision: {response.next} → {normalized} | Reason: {response.reasoning}")
-        return {"next": normalized, "recursion_depth": recursion_depth + 1}
+        logger.info(f"Routing to: {normalized} | Reason: {response.reasoning}")
+        
+        # Update stage based on routing
+        new_stage = "RESEARCH" if normalized == AgentName.RESEARCHER else "ANALYSIS"
+        updated_state = update_completion_state(completion_state, stage=new_stage)
+        
+        return {
+            "next": normalized,
+            "recursion_depth": recursion_depth + 1,
+            "completion_state": updated_state
+        }
     except Exception as e:
-        logger.error(f"Supervisor failed: {e}")
-        return {"next": "FINISH", "recursion_depth": recursion_depth + 1}
+        logger.error(f"Supervisor routing error: {e}")
+        return {
+            "next": AgentName.ANALYST,
+            "recursion_depth": recursion_depth + 1,
+            "completion_state": completion_state
+        }
+
 
 if __name__ == "__main__":
     # --- DEBUG/TEST BLOCK ---

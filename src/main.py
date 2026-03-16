@@ -50,40 +50,37 @@ def main():
     logger.info(f"Query: {user_input}")
     logger.info("=" * 70)
 
-    # Prepare initial state
+    # Prepare initial state with completion tracking
+    from src.graph.completion import create_initial_completion_state
     initial_state = {
         "messages": [HumanMessage(content=user_input)],
         "whiteboard": "",
         "next": settings.SUPERVISOR,
-        "recursion_depth": 0
+        "recursion_depth": 0,
+        "completion_state": create_initial_completion_state()
     }
 
     thread_id = str(uuid.uuid4())
 
     try:
         final_whiteboard = None
+        last_node = None
 
         for event in app.stream(
             initial_state,
             config={
-                "recursion_limit": settings.MAX_ITERATIONS,
+                "recursion_limit": settings.MAX_ITERATIONS + 5,  # Buffer for safe termination
                 "configurable": {"thread_id": thread_id}
             }
         ):
             for node_name, node_state in event.items():
-                logger.info(f"\n[Node: {node_name}]")
+                if node_name != last_node:
+                    logger.info(f"[Active Node: {node_name}]")
+                    last_node = node_name
+                    
+                    if "next" in node_state and node_name == settings.SUPERVISOR:
+                        logger.info(f"  → Routing Next to: {node_state['next']}")
 
-                # Log whiteboard updates (truncated if too long)
-                if "whiteboard" in node_state and node_state["whiteboard"]:
-                    wb = node_state["whiteboard"]
-                    preview = wb[:500] + "..." if len(wb) > 500 else wb
-                    logger.info(f"[Whiteboard]: {preview}")
-
-                # Log routing decision
-                if "next" in node_state:
-                    logger.info(f"[Next]: - {node_state['next']}")
-
-                # Keep the last whiteboard we see
                 if "whiteboard" in node_state:
                     final_whiteboard = node_state["whiteboard"]
 
@@ -101,7 +98,6 @@ def main():
             print("(Check logs for details or increase recursion limit)")
 
         print("=" * 80)
-        print("\nWorkflow finished. Traces: https://smith.langchain.com/")
 
     except Exception as e:
         logger.error("=" * 70)
@@ -111,7 +107,6 @@ def main():
         print(" ERROR ".center(80, "="))
         print("The system encountered an error. See logs for details.")
         print("=" * 80)
-
 
 if __name__ == "__main__":
     main()

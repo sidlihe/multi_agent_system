@@ -17,6 +17,7 @@ from src.utils.groq_client import get_llm
 from src.tools.registry import RESEARCHER_TOOLS
 from src.config.settings import settings
 from src.utils.logger import get_logger
+from src.graph.completion import CompletionStatus, create_initial_completion_state, update_completion_state
 
 logger = get_logger(__name__)
 logger.info("Initializing Researcher agent module...")
@@ -27,17 +28,19 @@ class AgentName(str, Enum):
     ANALYST = settings.ANALYST
     EVALUATOR = settings.EVALUATOR
 
-
 def researcher_node(state):
     """
-    Researcher node that gathers information using tools.
-    Uses manual tool calling parsing (more stable with Groq + Llama-3.3)
+    Researcher node: Gathers information and tracks tool usage.
     """
     logger.info("Entering Researcher Node.")
+    
+    # Get or create completion state
+    completion_state: CompletionStatus = state.get("completion_state")
+    if not completion_state:
+        completion_state = create_initial_completion_state()
 
-    llm = get_llm(temperature=0.15)  # low temperature → more consistent format
+    llm = get_llm(temperature=0.15)
 
-    # Build tool descriptions
     tool_descriptions = "\n".join(
         f"- {tool.name}: {getattr(tool, 'description', 'Search tool')}"
         for tool in RESEARCHER_TOOLS
@@ -50,8 +53,8 @@ def researcher_node(state):
     {tool_descriptions}
 
     Rules:
-    1. If you already know the answer or the whiteboard contains enough information → give a direct, concise final answer.
-    2. If you need more information → call exactly ONE tool.
+    1. Check the whiteboard. If previous searches failed or returned irrelevant data, modify your search query. Do NOT repeat the exact same search.
+    2. If you already know the answer or the whiteboard contains enough information → give a direct, concise final answer.
     3. To call a tool, output **ONLY** this exact format — nothing else:
 
     <function=tool_name>{{"query": "your precise search query"}}</function>
@@ -63,29 +66,26 @@ def researcher_node(state):
     VERY IMPORTANT:
     - Do NOT write JSON objects outside the tag
     - Do NOT add explanations before or after
-    - Do NOT use <tool>, <call>, or any other tag
     - Do NOT output markdown, bullet points, or reasoning when calling a tool
-    - Only when you are ready to give the final answer should you write normal text
     """
 
-    messages = [("system", system_prompt),] + state.get("messages", [])
+    messages = [("system", system_prompt)] + state.get("messages", [])
 
     if state.get("whiteboard"):
         messages.append(
             HumanMessage(content=f"Current whiteboard / known facts:\n{state['whiteboard']}")
         )
 
-    logger.debug("Calling LLM (manual tool format mode)...")
+    logger.debug("Calling LLM...")
 
     try:
         response = llm.invoke(messages)
         content = (response.content or "").strip()
-        logger.debug(f"LLM raw output:\n{content[:60]}{'...' if len(content) > 60 else ''}")
 
     except Exception as e:
         logger.error(f"LLM call failed: {e}", exc_info=True)
         whiteboard_update = f"Researcher - LLM call failed: {str(e)[:180]}"
-        return _return_state(state, whiteboard_update, next_agent=AgentName.SUPERVISOR)
+        return _return_state(state, whiteboard_update, AgentName.SUPERVISOR, completion_state)
 
     # ───────────────────────────────────────────────
     #  Parse possible tool call formats
@@ -105,7 +105,7 @@ def researcher_node(state):
         except:
             pass
 
-    # Pattern 2: <function=xxx [ … ] (url)></function>  ← fallback for your original error
+    # Pattern 2: Fallback parsing
     if not tool_call_detected:
         m2 = re.search(r'<function\s*=\s*(\w+)\s*\[(.*?)\].*?</function>', content, re.DOTALL)
         if m2:
@@ -117,6 +117,9 @@ def researcher_node(state):
 
     if tool_call_detected and tool_name and query:
         logger.info(f"Tool call detected - {tool_name}  query: {query}")
+        
+        # Track tool usage
+        completion_state.record_tool_usage(tool_name)
 
         tool_found = False
         for tool in RESEARCHER_TOOLS:
@@ -126,10 +129,7 @@ def researcher_node(state):
                     result_str = str(result).strip()
                     if len(result_str) > 1200:
                         result_str = result_str[:1150] + " … [truncated]"
-                    whiteboard_update = (
-                        f"Researcher searched: {query}\n"
-                        f"Result:\n{result_str}"
-                    )
+                    whiteboard_update = f"Researcher searched: {query}\nResult:\n{result_str}"
                 except Exception as exc:
                     whiteboard_update = f"Researcher tool failed: {str(exc)[:200]}"
                 tool_found = True
@@ -138,28 +138,28 @@ def researcher_node(state):
         if not tool_found:
             whiteboard_update = f"Researcher: unknown tool '{tool_name}'"
 
-        next_agent = AgentName.RESEARCHER   # stay in researcher if we called tool
+        next_agent = AgentName.RESEARCHER
 
     else:
-        # Normal answer — no tool call detected
         logger.info("LLM gave final answer (no tool call)")
-        whiteboard_update = f"Researcher final answer:\n{content}"
-        next_agent = AgentName.ANALYST      # or SUPERVISOR — adjust to your graph
+        whiteboard_update = f"Researcher final summary:\n{content}"
+        next_agent = AgentName.ANALYST      
 
-    return _return_state(state, whiteboard_update, next_agent)
+    return _return_state(state, whiteboard_update, next_agent, completion_state)
 
 
-def _return_state(state, whiteboard_update: str, next_agent: str):
-    """Helper to format consistent state return"""
-    current_whiteboard = state.get("whiteboard", "")
-    updated_whiteboard = current_whiteboard + ("\n\n" if current_whiteboard else "") + whiteboard_update
-
+def _return_state(state, whiteboard_update: str, next_agent: str, completion_state: CompletionStatus):
+    """Helper to format consistent state return.
+    PRODUCTION FIX: Only return the new delta. Do not concatenate the old whiteboard, 
+    otherwise LangGraph's state reducer will cause exponential duplication."""
+    
     return {
-        "messages": state.get("messages", []) + [AIMessage(content=whiteboard_update)],
-        "whiteboard": updated_whiteboard,
+        "messages": [AIMessage(content="Researcher updated the whiteboard.")],
+        "whiteboard": whiteboard_update,  # <-- ONLY return the new update!
         "next": next_agent,
-        # keep recursion_depth, sender, etc. if your graph uses them
-        **{k: v for k, v in state.items() if k not in ["messages", "whiteboard", "next"]},
+        "completion_state": completion_state,
+        "recursion_depth": state.get("recursion_depth", 0) + 1,
+        **{k: v for k, v in state.items() if k not in ["messages", "whiteboard", "next", "completion_state", "recursion_depth"]},
     }
 
 

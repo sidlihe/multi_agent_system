@@ -1,6 +1,10 @@
 from langgraph.graph import StateGraph, END
 
-import os,sys
+import os
+import sys
+import base64
+import zlib
+import urllib.request
 from pathlib import Path
 
 # Add the src directory to the system path for imports
@@ -25,14 +29,13 @@ class AgentName(str, Enum):
 def create_graph():
     workflow = StateGraph(AgentState)
 
-    # 1. Add Nodes - Use actual agent functions instead of stubs
+    # 1. Add Nodes
     workflow.add_node(AgentName.SUPERVISOR, supervisor_node)
     workflow.add_node(AgentName.RESEARCHER, researcher_node)
     workflow.add_node(AgentName.ANALYST, analyst_node)
     workflow.add_node(AgentName.EVALUATOR, evaluator_node)
 
     # 2. Add Conditional Edges
-    # Supervisor routes to appropriate agent based on 'next' field
     workflow.add_conditional_edges(
         AgentName.SUPERVISOR,
         lambda x: x.get("next", "FINISH"),
@@ -44,7 +47,7 @@ def create_graph():
         }
     )
 
-    # 3. Add Worker Edges - All workers report back to Supervisor
+    # 3. Add Worker Edges
     workflow.add_edge(AgentName.RESEARCHER, AgentName.SUPERVISOR)
     workflow.add_edge(AgentName.ANALYST, AgentName.SUPERVISOR)
     workflow.add_edge(AgentName.EVALUATOR, AgentName.SUPERVISOR)
@@ -52,13 +55,45 @@ def create_graph():
     # 4. Set Entry Point
     workflow.set_entry_point(AgentName.SUPERVISOR)
 
-    # 5. Compile the graph
-    # Note: Checkpointing is available but requires thread_id in config.
-    # For simple stateless execution, compile without checkpointer.
-    # Uncomment the line below to enable persistence:
-    # return workflow.compile(checkpointer=get_checkpointer())
-    
     return workflow.compile()
+
+def generate_robust_mermaid_png(app, output_path: str, logger):
+    """
+    Bulletproof function to generate Mermaid PNGs using HTTP POST to Kroki.io.
+    Sending data via POST body prevents URL length limits entirely.
+    """
+    import urllib.request
+    
+    try:
+        mermaid_text = app.get_graph().draw_mermaid()
+        logger.info("Connecting to Kroki.io image server via POST request...")
+        
+        url = "https://kroki.io/mermaid/png"
+        data = mermaid_text.encode('utf-8')
+        
+        # Using POST by providing the 'data' parameter
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={'Content-Type': 'text/plain', 'User-Agent': 'Mozilla/5.0'}
+        )
+        
+        with urllib.request.urlopen(req) as response:
+            with open(output_path, "wb") as f:
+                f.write(response.read())
+                
+        logger.info(f"✅ Architecture PNG successfully created at: {output_path}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to generate PNG via API: {e}")
+        # Ultimate fallback: Save as text so you have SOMETHING to look at
+        fallback_path = output_path.replace(".png", ".md")
+        try:
+            with open(fallback_path, "w", encoding="utf-8") as f:
+                f.write("```mermaid\n" + app.get_graph().draw_mermaid() + "\n```")
+            logger.info(f"⚠️ Saved raw Markdown diagram instead at: {fallback_path}")
+        except:
+            pass
 
 if __name__ == "__main__":
     from langchain_core.messages import HumanMessage
@@ -71,21 +106,10 @@ if __name__ == "__main__":
     app = create_graph()
     
     # ==========================================
-    # 1. GENERATE MERMAID PNG (If not exists)
+    # 1. GENERATE MERMAID PNG (Robust Method)
     # ==========================================
     image_path = os.path.join(project_root, "architecture_graph.png")
-    
-    if not os.path.exists(image_path):
-        logger.info(f"Generating Mermaid PNG at: {image_path}")
-        try:
-            png_bytes = app.get_graph().draw_mermaid_png()
-            with open(image_path, "wb") as f:
-                f.write(png_bytes)
-            logger.info(" Architecture PNG successfully created!")
-        except Exception as e:
-            logger.error(f"Failed to generate PNG (Internet connection required for Mermaid API): {e}")
-    else:
-        logger.info(f" Graph architecture PNG already exists at {image_path}. Skipping generation.")
+    generate_robust_mermaid_png(app, image_path, logger)
 
     # ==========================================
     # 2. TEST THE WORKFLOW (Single Pass)
@@ -102,7 +126,6 @@ if __name__ == "__main__":
     }
     
     try:
-        # We use .stream() so we can see what each node outputs in real-time
         for step_output in app.stream(initial_state):
             for node_name, state_update in step_output.items():
                 logger.info(f"\n{'='*50}")

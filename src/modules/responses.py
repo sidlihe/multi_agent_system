@@ -31,3 +31,13 @@ class EvaluationResult(BaseModel):
 
 class SearchInput(BaseModel):
     query: str = Field(description="The exact search query to look up on the web.")
+
+
+class Supervisor_RouteResponse(BaseModel):
+    next: str = Field(description="Next agent: RESEARCHER or ANALYST")
+    reasoning: str = Field(description="Brief reason for routing decision.")
+
+class EvaluationResult(BaseModel):
+    score: float = Field(description="Score from 0.0 to 1.0. 0.75+ = comprehensive answer.")
+    is_passing: bool = Field(description="True if score >= 0.75 AND answer is complete, else False.")
+    feedback: str = Field(description="Specific feedback for improvement if not passing.")
