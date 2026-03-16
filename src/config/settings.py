@@ -25,3 +25,10 @@ class Settings(BaseSettings):
     EVALUATOR: str = "Evaluator"
 
 settings = Settings()
+
+from enum import Enum
+class AgentName(str, Enum):
+    SUPERVISOR = settings.SUPERVISOR
+    RESEARCHER = settings.RESEARCHER
+    ANALYST = settings.ANALYST
+    EVALUATOR = settings.EVALUATOR

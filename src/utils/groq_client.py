@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import sys
 
-# Add project root to sys.path
+# Add the src directory to the system path for imports
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 

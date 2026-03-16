@@ -8,25 +8,18 @@ from enum import Enum
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
-
 # Add the src directory to the system path for imports
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from src.utils.groq_client import get_llm
 from src.tools.registry import RESEARCHER_TOOLS
-from src.config.settings import settings
+from src.config.settings import settings,AgentName
 from src.utils.logger import get_logger
 from src.graph.completion import CompletionStatus, create_initial_completion_state, update_completion_state
 
 logger = get_logger(__name__)
 logger.info("Initializing Researcher agent module...")
-
-class AgentName(str, Enum):
-    SUPERVISOR = settings.SUPERVISOR
-    RESEARCHER = settings.RESEARCHER
-    ANALYST = settings.ANALYST
-    EVALUATOR = settings.EVALUATOR
 
 def researcher_node(state):
     """
@@ -143,7 +136,7 @@ def researcher_node(state):
     else:
         logger.info("LLM gave final answer (no tool call)")
         whiteboard_update = f"Researcher final summary:\n{content}"
-        next_agent = AgentName.ANALYST      
+        next_agent = settings.AgentName.ANALYST      
 
     return _return_state(state, whiteboard_update, next_agent, completion_state)
 
@@ -168,7 +161,7 @@ if __name__ == "__main__":
     mock_state = {
         "messages": [HumanMessage(content="What is the current state of the global stock market today?")],
         "whiteboard": "",
-        "next": AgentName.RESEARCHER,
+        "next": settings.AgentName.RESEARCHER,
         "recursion_depth": 1
     }
     result = researcher_node(mock_state)

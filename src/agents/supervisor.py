@@ -4,25 +4,16 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 import os, sys
 from pathlib import Path
-
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
-
 from src.utils.groq_client import get_llm
-from src.config.settings import settings
+from src.config.settings import settings, AgentName
 from src.utils.logger import get_logger
 from src.graph.completion import CompletionStatus, create_initial_completion_state, update_completion_state
 from src.modules.responses import Supervisor_RouteResponse
 
 logger = get_logger(__name__)
 logger.info("Initializing Supervisor agent module...")
-
-from enum import Enum
-class AgentName(str, Enum):
-    SUPERVISOR = settings.SUPERVISOR
-    RESEARCHER = settings.RESEARCHER
-    ANALYST = settings.ANALYST
-    EVALUATOR = settings.EVALUATOR
 
 def normalize_next_agent(next_agent: str) -> str:
     next_upper = (next_agent or "").upper().strip()

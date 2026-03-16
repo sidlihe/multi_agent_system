@@ -15,7 +15,7 @@ sys.path.append(str(project_root))
 
 from src.utils.logger import get_logger
 from src.utils.tracing import init_tracing
-from src.config.settings import settings
+from src.config.settings import settings,AgentName
 from src.graph.workflow import create_graph
 
 logger = get_logger(__name__)
@@ -55,7 +55,7 @@ def main():
     initial_state = {
         "messages": [HumanMessage(content=user_input)],
         "whiteboard": "",
-        "next": settings.SUPERVISOR,
+        "next": AgentName.SUPERVISOR,
         "recursion_depth": 0,
         "completion_state": create_initial_completion_state()
     }
@@ -78,7 +78,7 @@ def main():
                     logger.info(f"[Active Node: {node_name}]")
                     last_node = node_name
                     
-                    if "next" in node_state and node_name == settings.SUPERVISOR:
+                    if "next" in node_state and node_name == AgentName.SUPERVISOR:
                         logger.info(f"  → Routing Next to: {node_state['next']}")
 
                 if "whiteboard" in node_state:

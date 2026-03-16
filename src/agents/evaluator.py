@@ -5,11 +5,9 @@ import sys
 from pathlib import Path
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage
-
 # Add the src directory to the system path for imports
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
-
 from src.utils.logger import get_logger
 from src.utils.groq_client import get_llm
 from src.config.settings import settings

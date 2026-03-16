@@ -24,11 +24,6 @@ class AnalysisResult(BaseModel):
     confidence: float
 
 
-class EvaluationResult(BaseModel):
-    verdict: str
-    score: float
-    reasoning: str
-
 class SearchInput(BaseModel):
     query: str = Field(description="The exact search query to look up on the web.")
 

@@ -5,9 +5,11 @@ from langchain_tavily import TavilySearch
 from langchain_core.tools import tool
 
 from pathlib import Path
+
 # Add the src directory to the system path for imports
 project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
+
 from src.utils.logger import get_logger
 from src.modules.responses import SearchInput
 

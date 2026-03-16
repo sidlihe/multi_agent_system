@@ -12,19 +12,12 @@ project_root = Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from src.graph.state import AgentState
-from src.config.settings import settings
+from src.config.settings import settings, AgentName
 from src.agents.supervisor import supervisor_node
 from src.agents.researcher import researcher_node
 from src.graph.checkpoints import get_checkpointer
 from src.agents.analyst import analyst_node
 from src.agents.evaluator import evaluator_node
-
-from enum import Enum
-class AgentName(str, Enum):
-    SUPERVISOR = settings.SUPERVISOR
-    RESEARCHER = settings.RESEARCHER
-    ANALYST = settings.ANALYST
-    EVALUATOR = settings.EVALUATOR
 
 def create_graph():
     workflow = StateGraph(AgentState)
@@ -108,6 +101,7 @@ if __name__ == "__main__":
     # ==========================================
     # 1. GENERATE MERMAID PNG (Robust Method)
     # ==========================================
+    project_root = Path(__file__).resolve().parents[2]
     image_path = os.path.join(project_root, "architecture_graph.png")
     generate_robust_mermaid_png(app, image_path, logger)
 
